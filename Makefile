@@ -48,7 +48,7 @@ LIBEXECDIR=	libexec
 GTESTDIR=gtest
 GTESTBINDIR=$(GTESTDIR)/bin
 # For now, disable g++ compile warnings on tests (there's so many :))
-GTESTOPTS = -w
+GTESTOPTS = -w -DTESTING
 
 SDCARD_DIR=	sdcard-files
 
@@ -62,6 +62,8 @@ SDCARD_DIR=	sdcard-files
 #
 UTILITIES=	$(B65DIR)/ethertest.prg \
 		$(B65DIR)/etherload.prg \
+		$(B65DIR)/rompatch.prg \
+		$(B65DIR)/wirekrill.prg \
 		$(B65DIR)/cartload.prg
 
 TESTS=		$(TESTDIR)/ascii.prg \
@@ -77,6 +79,7 @@ TOOLS=	$(BINDIR)/etherload \
 	$(BINDIR)/m65 \
 	$(BINDIR)/mega65_ftp \
 	$(BINDIR)/monitor_save \
+	$(BINDIR)/romdiff \
 	$(BINDIR)/pngprepare \
 	$(BINDIR)/giftotiles \
 	$(BINDIR)/m65ftp_test \
@@ -259,12 +262,17 @@ $(TESTDIR)/r3_production_test.prg:       $(TESTDIR)/r3_production_test.c $(CC65)
 	git submodule update
 	$(CL65) -I $(SRCDIR)/mega65-libc/cc65/include -O -o $*.prg --mapfile $*.map $<  $(SRCDIR)/mega65-libc/cc65/src/*.c $(SRCDIR)/mega65-libc/cc65/src/*.s
 
-$(EXAMPLEDIR)/wirekrill.prg:       $(EXAMPLEDIR)/wirekrill.c $(CC65)
+$(B65DIR)/wirekrill.prg:       $(EXAMPLEDIR)/wirekrill.c $(CC65)
 	git submodule init
 	git submodule update
 	$(CL65) -I $(SRCDIR)/mega65-libc/cc65/include -O -o $*.prg --mapfile $*.map $<  $(SRCDIR)/mega65-libc/cc65/src/*.c $(SRCDIR)/mega65-libc/cc65/src/*.s
 
 $(B65DIR)/cartload.prg:       $(UTILDIR)/cartload.c $(CC65)
+	git submodule init
+	git submodule update
+	$(CL65) -I $(SRCDIR)/mega65-libc/cc65/include -O -o $*.prg --mapfile $*.map $<  $(SRCDIR)/mega65-libc/cc65/src/*.c $(SRCDIR)/mega65-libc/cc65/src/*.s
+
+$(B65DIR)/rompatch.prg:       $(UTILDIR)/rompatch.c $(CC65)
 	git submodule init
 	git submodule update
 	$(CL65) -I $(SRCDIR)/mega65-libc/cc65/include -O -o $*.prg --mapfile $*.map $<  $(SRCDIR)/mega65-libc/cc65/src/*.c $(SRCDIR)/mega65-libc/cc65/src/*.s
@@ -361,6 +369,10 @@ $(BINDIR)/charrom.bin:	$(BINDIR)/pngprepare $(ASSETS)/8x8font.png
 $(BINDIR)/pngprepare:	$(TOOLDIR)/pngprepare/pngprepare.c Makefile
 	$(CC) $(COPT) -I/usr/local/include -L/usr/local/lib -o $(BINDIR)/pngprepare $(TOOLDIR)/pngprepare/pngprepare.c -lpng
 
+$(BINDIR)/romdiff:	$(TOOLDIR)/romdiff.c Makefile
+	$(CC) $(COPT) -O3 -I/usr/local/include -L/usr/local/lib -o $(BINDIR)/romdiff $(TOOLDIR)/romdiff.c
+
+
 $(BINDIR)/giftotiles:	$(TOOLDIR)/pngprepare/giftotiles.c Makefile
 	$(CC) $(COPT) -I/usr/local/include -L/usr/local/lib -o $(BINDIR)/giftotiles $(TOOLDIR)/pngprepare/giftotiles.c -lgif
 
@@ -400,7 +412,7 @@ $(BINDIR)/m65.osx:	$(TOOLDIR)/m65.c $(TOOLDIR)/m65common.c $(TOOLDIR)/version.c 
 
 
 $(BINDIR)/m65.exe:	$(TOOLDIR)/m65.c $(TOOLDIR)/m65common.c $(TOOLDIR)/version.c $(TOOLDIR)/screen_shot.c $(TOOLDIR)/fpgajtag/*.c $(TOOLDIR)/fpgajtag/*.h Makefile
-	$(WINCC) $(WINCOPT) -g -Wall -Iinclude -I/usr/include/libusb-1.0 -I/opt/local/include/libusb-1.0 -I/usr/local//Cellar/libusb/1.0.18/include/libusb-1.0/ -I$(TOOLDIR)/fpgajtag/ -o $(BINDIR)/m65.exe $(TOOLDIR)/m65.c $(TOOLDIR)/m65common.c $(TOOLDIR)/version.c $(TOOLDIR)/screen_shot.c $(TOOLDIR)/fpgajtag/fpgajtag.c $(TOOLDIR)/fpgajtag/util.c $(TOOLDIR)/fpgajtag/process.c -Wl,-Bstatic -lusb-1.0 -lwsock32 -lws2_32 -lpng -lz -Wl,-Bdynamic
+	$(WINCC) $(WINCOPT) -g -Wall -Iinclude `pkg-config --cflags libusb-1.0` -I/usr/include/libusb-1.0 -I/opt/local/include/libusb-1.0 -I/usr/local//Cellar/libusb/1.0.18/include/libusb-1.0/ -I$(TOOLDIR)/fpgajtag/ -o $(BINDIR)/m65.exe $(TOOLDIR)/m65.c $(TOOLDIR)/m65common.c $(TOOLDIR)/version.c $(TOOLDIR)/screen_shot.c $(TOOLDIR)/fpgajtag/fpgajtag.c $(TOOLDIR)/fpgajtag/util.c $(TOOLDIR)/fpgajtag/process.c -Wl,-Bstatic -lusb-1.0 -lwsock32 -lws2_32 -lpng -lz -Wl,-Bdynamic
 # $(TOOLDIR)/fpgajtag/listComPorts.c $(TOOLDIR)/fpgajtag/disphelper.c
 
 $(LIBEXECDIR)/ftphelper.bin:	$(TOOLDIR)/ftphelper.a65
@@ -409,17 +421,31 @@ $(LIBEXECDIR)/ftphelper.bin:	$(TOOLDIR)/ftphelper.a65
 $(TOOLDIR)/ftphelper.c:	$(UTILDIR)/remotesd.prg $(TOOLDIR)/bin2c
 	$(TOOLDIR)/bin2c $(UTILDIR)/remotesd.prg helperroutine $(TOOLDIR)/ftphelper.c
 
-$(GTESTBINDIR)/mega65_ftp.test: $(GTESTDIR)/mega65_ftp_test.cpp $(TOOLDIR)/mega65_ftp.c $(TOOLDIR)/m65common.c Makefile $(TOOLDIR)/ftphelper.c
-	$(CXX) $(COPT) $(GTESTOPTS) -DTESTING -Iinclude -o $(GTESTBINDIR)/mega65_ftp.test $(GTESTDIR)/mega65_ftp_test.cpp $(TOOLDIR)/mega65_ftp.c $(TOOLDIR)/m65common.c $(TOOLDIR)/ftphelper.c -lreadline -lncurses -lgtest_main -lgtest -lpthread
+define LINUX_AND_MINGW_GTEST_TARGETS
+$(1): $(2)
+	$$(CXX) $$(COPT) $$(GTESTOPTS) -Iinclude -o $$@ $$(filter %.c %.cpp,$$^) -lreadline -lncurses -lgtest_main -lgtest -lpthread
 
-$(GTESTBINDIR)/mega65_ftp.test.exe: $(GTESTDIR)/mega65_ftp_test.cpp $(TOOLDIR)/mega65_ftp.c $(TOOLDIR)/m65common.c Makefile $(TOOLDIR)/ftphelper.c
-	$(CXX) $(WINCOPT) $(GTESTOPTS) -DTESTING -Iinclude -o $(GTESTBINDIR)/mega65_ftp.test.exe $(GTESTDIR)/mega65_ftp_test.cpp $(TOOLDIR)/mega65_ftp.c $(TOOLDIR)/m65common.c $(TOOLDIR)/ftphelper.c -lreadline -lncurses -lgtest_main -lgtest -lpthread
+$(1).exe: $(2)
+	$$(CXX) $$(WINCOPT) $$(GTESTOPTS) -Iinclude -o $$@ $$(filter %.c %.cpp,$$^) -lreadline -lncurses -lgtest_main -lgtest -lpthread
+endef
 
-test: $(GTESTBINDIR)/mega65_ftp.test
+# Gives two targets of:
+# - gtest/bin/mega65_ftp.test
+# - gtest/bin/mega65_ftp.test.exe
+$(eval $(call LINUX_AND_MINGW_GTEST_TARGETS, $(GTESTBINDIR)/mega65_ftp.test, $(GTESTDIR)/mega65_ftp_test.cpp $(TOOLDIR)/mega65_ftp.c $(TOOLDIR)/m65common.c $(TOOLDIR)/ftphelper.c Makefile))
+
+# Gives two targets of:
+# - gtest/bin/bit2core.test
+# - gtest/bin/bit2core.test.exe
+$(eval $(call LINUX_AND_MINGW_GTEST_TARGETS, $(GTESTBINDIR)/bit2core.test, $(GTESTDIR)/bit2core_test.cpp $(TOOLDIR)/bit2core.c $(TOOLDIR)/version.c))
+
+test: $(GTESTBINDIR)/mega65_ftp.test $(GTESTBINDIR)/bit2core.test
 	$(GTESTBINDIR)/mega65_ftp.test
+	$(GTESTBINDIR)/bit2core.test
 
-test.exe: $(GTESTBINDIR)/mega65_ftp.test.exe
+test.exe: $(GTESTBINDIR)/mega65_ftp.test.exe $(GTESTBINDIR)/bit2core.test.exe
 	$(GTESTBINDIR)/mega65_ftp.test.exe
+	$(GTESTBINDIR)/bit2core.test.exe
 
 $(BINDIR)/mega65_ftp:	$(TOOLDIR)/mega65_ftp.c $(TOOLDIR)/m65common.c Makefile $(TOOLDIR)/ftphelper.c
 	$(CC) $(COPT) -Iinclude -o $(BINDIR)/mega65_ftp $(TOOLDIR)/mega65_ftp.c $(TOOLDIR)/m65common.c $(TOOLDIR)/ftphelper.c -lreadline -lncurses
@@ -428,7 +454,7 @@ $(BINDIR)/mega65_ftp.static:	$(TOOLDIR)/mega65_ftp.c $(TOOLDIR)/m65common.c Make
 	$(CC) $(COPT) -Iinclude -mno-sse3 -o $(BINDIR)/mega65_ftp.static $(TOOLDIR)/mega65_ftp.c $(TOOLDIR)/m65common.c $(TOOLDIR)/ftphelper.c ncurses/lib/libncurses.a readline/libreadline.a readline/libhistory.a -ltermcap
 
 $(BINDIR)/mega65_ftp.exe:	$(TOOLDIR)/mega65_ftp.c Makefile $(TOOLDIR)/ftphelper.c $(TOOLDIR)/m65common.c
-	$(WINCC) $(WINCOPT) -g -Wall -Iinclude -I/usr/include/libusb-1.0 -I/opt/local/include/libusb-1.0 -I/usr/local//Cellar/libusb/1.0.18/include/libusb-1.0/ -I$(TOOLDIR)/fpgajtag/ -o $(BINDIR)/mega65_ftp.exe $(TOOLDIR)/mega65_ftp.c $(TOOLDIR)/m65common.c $(TOOLDIR)/ftphelper.c -lusb-1.0 -Wl,-Bstatic -lz -Wl,-Bdynamic
+	$(WINCC) $(WINCOPT) -g -Wall -Iinclude -I/usr/include/libusb-1.0 -I/opt/local/include/libusb-1.0 -I/usr/local//Cellar/libusb/1.0.18/include/libusb-1.0/ -I$(TOOLDIR)/fpgajtag/ -o $(BINDIR)/mega65_ftp.exe $(TOOLDIR)/mega65_ftp.c $(TOOLDIR)/m65common.c $(TOOLDIR)/ftphelper.c -lusb-1.0 -Wl,-Bstatic -lwsock32 -lws2_32 -lz -Wl,-Bdynamic
 
 $(BINDIR)/mega65_ftp.osx:	$(TOOLDIR)/mega65_ftp.c $(TOOLDIR)/ftphelper.c Makefile $(TOOLDIR)/m65common.c
 	$(CC) $(COPT) -D__APPLE__ -g -Wall -Iinclude -I/usr/include/libusb-1.0 -I/opt/local/include/libusb-1.0 -I/usr/local//Cellar/libusb/1.0.18/include/libusb-1.0/ -o $(BINDIR)/mega65_ftp.osx $(TOOLDIR)/mega65_ftp.c $(TOOLDIR)/m65common.c $(TOOLDIR)/ftphelper.c -lusb-1.0 -lz -lpthread -lreadline
@@ -436,11 +462,22 @@ $(BINDIR)/mega65_ftp.osx:	$(TOOLDIR)/mega65_ftp.c $(TOOLDIR)/ftphelper.c Makefil
 $(BINDIR)/bitinfo:	$(TOOLDIR)/bitinfo.c Makefile 
 	$(CC) $(COPT) -g -Wall -o $(BINDIR)/bitinfo $(TOOLDIR)/bitinfo.c
 
-$(BINDIR)/bit2core:	$(TOOLDIR)/bit2core.c Makefile 
-	$(CC) -g -Wall -o $(BINDIR)/bit2core $(TOOLDIR)/bit2core.c
 
-$(BINDIR)/bit2core.exe:	$(TOOLDIR)/bit2core.c Makefile 
-	$(WINCC) $(WINCOPT) -g -Wall -o $(BINDIR)/bit2core.exe $(TOOLDIR)/bit2core.c
+# Create targets for binary (linux) and binary.exe (mingw) easily, minimising repetition
+# arg1 = target name (without .exe)
+# arg2 = pre-requisites
+define LINUX_AND_MINGW_TARGETS
+$(1): $(2)
+	$$(CC) -g -Wall -Iinclude -o $$@ $$(filter %.c,$$^)
+
+$(1).exe: $(2)
+	$$(WINCC) $$(WINCOPT) -g -Wall -Iinclude -o $$@ $$(filter %.c,$$^)
+endef
+
+# Creates 2 targets:
+# - bin/bit2core (for linux)
+# - bin/bit2core.exe (for mingw)
+$(eval $(call LINUX_AND_MINGW_TARGETS, $(BINDIR)/bit2core, $(TOOLDIR)/bit2core.c $(TOOLDIR)/version.c Makefile))
 
 $(BINDIR)/bit2mcs:	$(TOOLDIR)/bit2mcs.c Makefile 
 	$(CC) $(COPT) -g -Wall -o $(BINDIR)/bit2mcs $(TOOLDIR)/bit2mcs.c

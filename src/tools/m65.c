@@ -357,6 +357,16 @@ int virtual_f011_write(int device, int track, int sector, int side)
   return 0;
 }
 
+uint32_t uint32_from_buf(unsigned char* b, int ofs)
+{
+  uint32_t v = 0;
+  v = b[ofs + 0];
+  v |= (b[ofs + 1] << 8);
+  v |= (b[ofs + 2] << 16);
+  v |= (b[ofs + 3] << 24);
+  return v;
+}
+
 void show_hyppo_report(void)
 {
   // Buffer starats at $BC00 in HYPPO
@@ -366,7 +376,9 @@ void show_hyppo_report(void)
   // $BF00 - $BFFF = ZP
 
   unsigned char syspart_buffer[0x40];
+  unsigned char disktable_buffer[0x100];
 
+  fetch_ram(0xfffbb00, 0x100, disktable_buffer);
   fetch_ram(0xfffbbc0, 0x40, syspart_buffer);
   fetch_ram(0xfffbc00, 0x400, hyppo_buffer);
   printf("HYPPO status:\n");
@@ -419,6 +431,17 @@ void show_hyppo_report(void)
     //	   hyppo_buffer[fd_o+14],hyppo_buffer[fd_o+13]);
   }
 
+  printf("Disk Table:\n");
+  printf("  Disk# Start     Size       FS FAT_Len   SysLen Rsv RootDir Clusters  CSz #FATs Cluster0\n");
+  for (int disk = 0; disk < 6; disk++) {
+    printf("   #%d   $%08x $%08x  %02x $%08x $%04x  %02x  $%04x   $%08x %02x  %02x    $%08x\n", disk,
+        uint32_from_buf(disktable_buffer, disk * 32 + 0), uint32_from_buf(disktable_buffer, disk * 32 + 4),
+        (int)disktable_buffer[disk * 32 + 8], uint32_from_buf(disktable_buffer, disk * 32 + 9),
+        uint32_from_buf(disktable_buffer, disk * 32 + 0x0d) & 0xffff, (int)disktable_buffer[disk * 32 + 0x0f],
+        uint32_from_buf(disktable_buffer, disk * 32 + 0x10) & 0xffff, uint32_from_buf(disktable_buffer, disk * 32 + 0x12),
+        (int)disktable_buffer[disk * 32 + 0x16], (int)disktable_buffer[disk * 32 + 0x17],
+        uint32_from_buf(disktable_buffer, disk * 32 + 0x18));
+  }
   printf("Current file descriptor # = $%02x\n", hyppo_buffer[0xf4]);
   printf("Current file descriptor offset = $%02x\n", hyppo_buffer[0xf5]);
   printf("Dos error code = $%02x\n", hyppo_buffer[0xf6]);
@@ -1419,11 +1442,10 @@ int main(int argc, char** argv)
     usage();
 
   // -b Load bitstream if file provided
-  if (bitstream)
-  {
+  if (bitstream) {
     load_bitstream(bitstream);
     if (bitstream_only)
-        do_exit(0);
+      do_exit(0);
   }
 
   if (virtual_f011) {
@@ -1791,7 +1813,7 @@ int main(int argc, char** argv)
     stop_cpu();
     do_screen_shot();
     start_cpu();
-    exit(0);
+    do_exit(0);
   }
 
   if (filename) {
@@ -1821,8 +1843,17 @@ int main(int argc, char** argv)
 
     while (!filename_matches) {
 
-      if (saw_c64_mode)
+      if (saw_c64_mode) {
+        // Assume LOAD vector in C64 mode is fixed
         load_routine_addr = 0xf4a5;
+        fprintf(stderr, "NOTE: Assuming LOAD routine at $F4A5 for C64 mode\n");
+      }
+      else {
+        unsigned char vectorbuff[2];
+        fetch_ram(0x3FFD6, 2, vectorbuff);
+        load_routine_addr = vectorbuff[0] + (vectorbuff[1] << 8);
+        fprintf(stderr, "NOTE: LOAD vector from ROM is $%04x\n", load_routine_addr);
+      }
       // Type LOAD command and set breakpoint to catch the ROM routine
       // when it executes.
       breakpoint_set(load_routine_addr);
@@ -2140,6 +2171,18 @@ int main(int argc, char** argv)
       slow_write(fd, cmd, strlen(cmd));
       monitor_sync();
 
+      // Set end of memory pointer
+      {
+        int top_of_mem_ptr_addr = 0x2d;
+        if (saw_c65_mode)
+          top_of_mem_ptr_addr = 0x82;
+        unsigned char load_addr_bytes[2];
+        load_addr_bytes[0] = load_addr;
+        load_addr_bytes[1] = load_addr >> 8;
+        push_ram(top_of_mem_ptr_addr, 2, load_addr_bytes);
+        fprintf(stderr, "NOTE: Storing end of program pointer at $%x\n", top_of_mem_ptr_addr);
+      }
+
       // We need to set X and Y to load address before
       // returning: LDX #$ll / LDY #$yy / CLC / RTS
       sprintf(cmd, "s380 a2 %x a0 %x 18 60\r", load_addr & 0xff, (load_addr >> 8) & 0xff);
@@ -2219,20 +2262,20 @@ int main(int argc, char** argv)
       continue;
     }
   }
-
   do_exit(0);
 }
 
 void do_exit(int retval)
 {
 #ifndef WINDOWS
-  if (thread_count)
-  {
+  if (thread_count) {
     timestamp_msg("");
     fprintf(stderr, "Background tasks may be running running. CONTROL+C to stop...\n");
     for (int i = 0; i < thread_count; i++)
       pthread_join(threads[i], NULL);
   }
 #endif
+  close_tcp_port();
+
   exit(retval);
 }
