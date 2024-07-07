@@ -27,7 +27,7 @@ log = logging.getLogger("coretool")
 ##
 LOG_FORMAT: str = '[%(asctime)-19.19s %(levelname)-4.4s] %(message)s'
 
-VERSION: str = '@@VERSION@@'
+VERSION: str = '20240706.07-r-1.00-8038fea'
 
 CORE_MAGIC: bytes = b'MEGA65BITSTREAM0'
 CORE_CRC32: bytes = b'\xf0\xf0\xf0\xf0'
@@ -158,7 +158,7 @@ class MEGA65target:
     name: str
     code: int
     size: int
-    fpga: int
+    fpga: str
 
 
 class MEGA65targets:
@@ -186,13 +186,13 @@ class MEGA65targets:
             self._by_code[t.code] = t
             self._by_fpga.setdefault(t.fpga, []).append(t)
 
-    def by_name(self, key: str) -> MEGA65target:
+    def by_name(self, key: str) -> Optional[MEGA65target]:
         return self._by_name.get(key, None)
 
-    def by_code(self, key: int) -> MEGA65target:
+    def by_code(self, key: int) -> Optional[MEGA65target]:
         return self._by_code.get(key, None)
 
-    def by_fpga(self, key: str) -> List[MEGA65target]:
+    def by_fpga(self, key: str) -> Optional[List[MEGA65target]]:
         return self._by_fpga.get(key, None)
 
     def get(self, key: any) -> Union[MEGA65target, List[MEGA65target]]:
@@ -264,7 +264,7 @@ class MEGA65flags:
         return (value & self.bad_mask) != 0
 
     def make_valid(self, value: int) -> bool:
-        return value & self.ok_mask
+        return (value & self.ok_mask) > 0
 
     def check(self, key: str, value: int) -> bool:
         if key not in self.name2flag:
@@ -457,6 +457,8 @@ class FpgaBitStream(ContentElement):
         if not self.target:
             return None
         guess = self.guess_match
+        if not guess:
+            return None
         for target in M65_TARGETS.by_fpga(self.target):
             if target.name == guess['target'].replace('-', ''):
                 return target
@@ -586,7 +588,7 @@ class CoreFile:
         return 0
 
     @property
-    def bit_filename(self) -> str:
+    def bit_filename(self) -> Path:
         return sanitize_filename(f"{self.core_target.name}-{self.bit_version}.bit")
 
     @property
@@ -763,16 +765,17 @@ class CoreFile:
 
     def smart_sort_files(self):
 
+        SMART_SORT_SEQ = {
+            'MEGA65.ROM':   '000000001',
+            'ETHLOAD.M65':  '000000002',
+            'FREEZER.M65':  '000000003',
+            'M65THUMB.M65': '000000004',
+            'C65THUMB.M65': '000000005',
+            'C64THUMB.M65': '000000006',
+            'BANNER.M65':   'zzzzzzzzz',
+        }
         def embedsmartsort(embed: EmbeddedFile) -> str:
-            if embed.name == 'MEGA65.ROM':
-                return '000000001' + embed.name
-            if embed.name == 'ETHLOAD.M65':
-                return '000000002' + embed.name
-            if embed.name == 'FREEZER.M65':
-                return '000000009' + embed.name
-            if embed.name == 'BANNER.M65':
-                return 'zzzzzzzzz' + embed.name
-            return embed.name
+            return SMART_SORT_SEQ.get(embed.name, '') + embed.name
 
         self._embed_files = [x for x in sorted(self._embed_files, key=embedsmartsort)]
 
@@ -960,8 +963,8 @@ class CoreFile:
 class MCSFile:
 
     def __init__(self, filepath: Optional[Union[str, Path]] = None):
-        self._filepath: Path = None
-        self._raw_data: bytes = None
+        self._filepath: Optional[Path] = None
+        self._raw_data: Optional[bytes] = None
         self._offset: int = 0
         if filepath is not None:
             if type(filepath) is str:
@@ -1087,7 +1090,7 @@ class MCSFile:
         nextaddr: int = 0
         with path.open('wt', encoding='ascii', buffering=131072) as fp:
             try:
-                data: bytes = array('B', self.raw_data)
+                data: array = array('B', self.raw_data)
                 datalen: int = len(data)
                 offset: int = 0
                 while offset < datalen:
@@ -1112,7 +1115,6 @@ def open_file(filepath: Union[str, Path]) -> Optional[Union[CoreFile, MCSFile, F
     if isinstance(filepath, str):
         filepath = Path(filepath)
 
-    fileobj: Union[CoreFile, MCSFile, FpgaBitStream] = None
     try:
         header = filepath.open('rb').read(256)
     except (FileNotFoundError, IOError) as err:
@@ -1220,6 +1222,7 @@ def build_core(args: argparse.Namespace, bitobj: Optional[FpgaBitStream] = None)
             log.info(f'Version guessed to be "{version}"')
     if not version:
         log.error("Please provide a version for the core using --version/-v")
+        return 1
 
     core.core_target = target
     core.bit_name = name
@@ -1590,9 +1593,9 @@ def convert_files(args: argparse.Namespace) -> int:
             args.offset = args.target.size * slot * 1024
         else:
             try:
-                args.offset = int(args.offset, 0)
+                args.offset = args.offset
             except ValueError as err:
-                log.error('Unable to parse --offset "{args.offset}": {err}')
+                log.error(f'Unable to parse --offset "{args.offset}": {err}')
                 return 1
 
     if isinstance(fileobj, FpgaBitStream):
@@ -1753,7 +1756,7 @@ def main():
     args = parser.parse_args()
 
     if args.version:
-        print("coretool - mega65-tools @@VERSION@@")
+        print("coretool - mega65-tools 20240706.07-r-1.00-8038fea")
         sys.exit(0)
 
     if args.color is not None:
